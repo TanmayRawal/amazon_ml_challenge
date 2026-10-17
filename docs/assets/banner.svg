@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Business Entity Resolution at Scale — Team Antidex">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#14213d"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff9900"/>
+      <stop offset="1" stop-color="#ffb84d"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="320" rx="18" fill="url(#bg)"/>
+  <rect width="1280" height="320" rx="18" fill="url(#grid)"/>
+
+  <!-- title block -->
+  <text x="64" y="104" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="600" letter-spacing="3" fill="#ff9900">AMAZON ML CHALLENGE 2026 · TEAM ANTIDEX</text>
+  <text x="64" y="162" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="50" font-weight="700" fill="#f8fafc">Business Entity Resolution</text>
+  <text x="64" y="208" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#cbd5e1">1.73M businesses · 10M noisy records · millions of decoys</text>
+  <rect x="64" y="236" width="300" height="44" rx="22" fill="url(#accent)"/>
+  <text x="214" y="265" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#0b1220">Macro F0.5 · 0.989462</text>
+
+  <!-- graphic: one S1 linked to its copies, one decoy rejected -->
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600">
+    <g stroke-width="2.5" fill="none">
+      <path d="M1000 160 L1120 80" stroke="#34d399"/>
+      <path d="M1000 160 L1150 160" stroke="#34d399"/>
+      <path d="M1000 160 L1120 240" stroke="#34d399"/>
+      <path d="M1000 160 L880 80" stroke="#34d399"/>
+      <path d="M1000 160 L870 245" stroke="#f87171" stroke-dasharray="6 6"/>
+    </g>
+    <circle cx="1000" cy="160" r="38" fill="#ff9900"/>
+    <text x="1000" y="165" text-anchor="middle" fill="#0b1220" font-size="16" font-weight="700">S1</text>
+
+    <circle cx="1120" cy="80" r="24" fill="#1e293b" stroke="#34d399" stroke-width="2.5"/>
+    <text x="1120" y="85" text-anchor="middle" fill="#e2e8f0">S2</text>
+    <circle cx="1150" cy="160" r="24" fill="#1e293b" stroke="#34d399" stroke-width="2.5"/>
+    <text x="1150" y="165" text-anchor="middle" fill="#e2e8f0">S3</text>
+    <circle cx="1120" cy="240" r="24" fill="#1e293b" stroke="#34d399" stroke-width="2.5"/>
+    <text x="1120" y="245" text-anchor="middle" fill="#e2e8f0">S2</text>
+    <circle cx="880" cy="80" r="24" fill="#1e293b" stroke="#34d399" stroke-width="2.5"/>
+    <text x="880" y="85" text-anchor="middle" fill="#e2e8f0">S3</text>
+
+    <circle cx="870" cy="245" r="24" fill="#1e293b" stroke="#f87171" stroke-width="2.5"/>
+    <text x="870" y="250" text-anchor="middle" fill="#fca5a5">S2</text>
+    <path d="M928 196 l14 14 m0 -14 l-14 14" stroke="#f87171" stroke-width="3"/>
+    <text x="870" y="292" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="500">decoy</text>
+  </g>
+</svg>

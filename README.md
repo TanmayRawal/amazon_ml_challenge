@@ -1,70 +1,244 @@
-# Business Entity Resolution at Scale
+<div align="center">
 
-**Team Antidex** — Amazon ML Challenge 2026 · public leaderboard **0.989462** macro F0.5
+<img src="docs/assets/banner.svg" alt="Business Entity Resolution — Team Antidex, Amazon ML Challenge 2026" width="100%"/>
 
-Tanmay Rawal · Shiviansh Yadav · Mudit Todi · Yash Jain
+<br/>
+
+[![Macro F0.5](https://img.shields.io/badge/public_LB-0.989462-ff9900?style=for-the-badge)](#-results)
+[![Python](https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](requirements.txt)
+[![LightGBM](https://img.shields.io/badge/LightGBM-stacked-2c9e4b?style=for-the-badge)](docs/adr/0003-gradient-boosting-as-core-matcher.md)
+[![PyTorch](https://img.shields.io/badge/PyTorch-cross--encoders-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](docs/adr/0007-cross-encoders-on-uncertain-band.md)
+[![Tests](https://img.shields.io/badge/tests-95_passing-brightgreen?style=for-the-badge)](#-getting-started)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+
+**Two independent entity-resolution pipelines, a learned ensemble and an exact expected-F0.5 decision, built in three days on consumer laptops.**
+
+[Results](#-results) · [How it works](#-how-it-works) · [Key insights](#-key-insights) · [Decisions](#-architecture-decisions) · [Getting started](#-getting-started) · [Full report](docs/methodology.md)
+
+</div>
 
 ---
 
-For every business record in Source 1 (1.73M test records), find all records in Sources 2 and 3 (about 10M records) that describe the same real business. The answer can be none, one or many. Each Source-1 record is scored with F0.5, which weighs precision twice as much as recall, and the score is the mean over all records.
+## 📌 At a glance
 
-Two things make this harder than a textbook matching task:
+<table>
+<tr>
+<td width="25%" align="center"><h3>0.989462</h3>public leaderboard<br/>macro F0.5</td>
+<td width="25%" align="center"><h3>0.9918</h3>held-out sealed fold<br/>(US + India, test-like)</td>
+<td width="25%" align="center"><h3>122.6M</h3>candidate pairs<br/>scored on test</td>
+<td width="25%" align="center"><h3>0.926 → 0.989</h3>leaderboard climb<br/>over 3 days</td>
+</tr>
+</table>
 
-- **A new country with no labels.** Training covers the US and India; the test set adds France.
-- **Adversarial decoys.** About 41–48% of test target records belong to no business, against 26% in training. Many copy a real business and change one detail, such as the legal form or a house-number digit.
+## 🧩 The problem
 
-## Results
+For each of **1.73 million** business records in Source 1, find every record in Sources 2 and 3 (about **10 million** records) that describes the same real business. The answer can be none, one or many. Each Source-1 record is scored with **F0.5**, which weighs precision twice as much as recall, and the leaderboard averages it over all records.
 
-| System | Score |
+It is harder than it sounds:
+
+| Challenge | Why it hurts |
 |---|---|
-| Pipeline A alone (sealed fold, US + India) | 0.9890 |
-| Pipeline B alone (sealed fold, US + India) | 0.9884 |
-| Two-pipeline ensemble + second opinion (sealed fold, test-like) | **0.9918** |
-| Final submission, public leaderboard (all countries) | **0.989462** |
+| 🇫🇷 **A country with no labels** | Training covers the US and India. The test set adds France, about 15% of records, with its own naming and address conventions. |
+| 🎭 **Adversarial decoys** | 41–48% of test target records belong to no business, against 26% in training. Many copy a real business and change exactly one detail. |
+| ✍️ **Heavy noise on true copies** | Typos and leet (`L0TUS`), website names (`wilfordhancock.com`), acronyms (`PMC`), nine Indian scripts, blank or truncated addresses, invented trade names. |
+| 👯 **Repeated names** | 38% of records share their name with another record. "Bordeaux Club SARL" appears 205 times. |
 
-The public score rose from 0.926 to 0.989462 over the three-day challenge. The upload history is in [docs/methodology.md](docs/methodology.md#5-results--error-analysis).
+The key observation behind the whole system:
 
-## Architecture
+> **True copies are messy but faithful. Decoys are clean but wrong in one specific way.**
+
+| ✅ A true copy carries *noise* | ❌ A decoy makes *one meaningful change* |
+|---|---|
+| `Lotus Traders Pvt Ltd` → `L0TUS TRADERS` | `Lotus Traders Pvt Ltd` → `Lotus Traders Public Ltd` |
+| house number `9914` → `914` (truncated) | house number `315` → `325` (one digit replaced) |
+| `Wilford Hancock LLC` → `wilfordhancock.com` | `Judo Club` → `Judo Maison` (common word swapped in) |
+
+<sub>Examples are illustrative, modelled on patterns measured in the training data.</sub>
+
+## 📈 Results
+
+| System | Sealed fold (US + India) |
+|---|:---:|
+| Pipeline A alone | 0.9890 |
+| Pipeline B alone | 0.9884 |
+| Two-pipeline logit average | 0.9903 |
+| **+ retrieval fix + second-opinion correction** (test-like) | **0.9918** |
+
+**Public leaderboard, upload by upload.** Every step was validated on held-out data before an upload was spent on it.
+
+```mermaid
+xychart-beta
+    title "Public leaderboard macro F0.5"
+    x-axis [v5, v7, v10, v13, v18c, v20, v21e, v21e3b, v22c, v24]
+    y-axis "F0.5" 0.92 --> 0.995
+    line [0.926, 0.950, 0.961, 0.9812, 0.98216, 0.985328, 0.987776, 0.989165, 0.989359, 0.989462]
+```
+
+<details>
+<summary><b>What each version changed</b></summary>
+
+| Version | Main change | Public LB |
+|---|---|:---:|
+| v5 | stacked stage 2, Indic consonant skeletons | 0.926 |
+| v7 | decoy-aware list features | 0.950 |
+| v10 | ranker similarity features | 0.961 |
+| v13 | name-word × address-word blocking, decoy features in stage 1 | 0.9812 |
+| v18c | TF-IDF search, MiniLM pair judges, test-like training | 0.98216 |
+| v20 | pipeline A with three cross-encoders | 0.985328 |
+| v21e | two-pipeline average + first France rules | 0.987776 |
+| v21e3bx_fr2 | second opinion, US correction, domain and legal-tie rules | 0.989165 |
+| v22c | acronyms, formatting-based tie resolution, extra decoy offsets | 0.989359 |
+| **v24 (final)** | guarded France ensemble, brand names, domain rule, singleton guard | **0.989462** |
+
+</details>
+
+## ⚙️ How it works
 
 ```mermaid
 flowchart LR
-    D[(Train / test TSVs)] --> N[Normalise<br/>accents, leet, legal form,<br/>Indic skeletons]
-    N --> BA[Pipeline A blocking<br/>11 channels + second hop]
-    N --> BB[Pipeline B blocking<br/>8 passes + trigram TF-IDF]
-    BA --> RA[LightGBM ranker<br/>top 60]
-    BB --> RB[LightGBM ranker<br/>top 30]
-    RA --> MA[Stage 1 + stacked stage 2<br/>LightGBM]
-    RB --> MB[Stage 1 + stacked stage 2<br/>LightGBM + MiniLM pair judges]
-    MA --> XA[3 cross-encoders<br/>+ LightGBM link]
-    XA --> E[Logit average<br/>US / India]
+    D[(Train / test<br/>TSVs)]:::data --> N[Normalise<br/>accents · leet · legal form<br/>Indic skeletons]
+
+    subgraph A [Pipeline A]
+        direction TB
+        BA[11 blocking channels<br/>+ second hop] --> RA[LightGBM ranker<br/>top 60]
+        RA --> MA[Stage 1 + stacked<br/>stage 2 LightGBM]
+        MA --> XA[3 cross-encoders<br/>+ link model]
+    end
+
+    subgraph B [Pipeline B]
+        direction TB
+        BB[8 passes<br/>+ trigram TF-IDF] --> RB[LightGBM ranker<br/>top 30]
+        RB --> MB[Stage 1 + stacked stage 2<br/>+ MiniLM pair judges]
+    end
+
+    N --> BA
+    N --> BB
+    XA --> E[Logit<br/>average]
     MB --> E
-    E --> S[Second-opinion<br/>LightGBM correction]
-    S --> DTA[Exact expected-F0.5<br/>decision per S1]
-    DTA --> R[Validated rule overlays<br/>France, US fixes, caps]
-    R --> O[(matching_results.tsv<br/>candidate_pairs.tsv)]
+    E --> S[Second-opinion<br/>LightGBM]
+    S --> DTA[Exact expected-F0.5<br/>decision per record]
+    DTA --> R[Validated rule<br/>overlays]
+    R --> O[(matching_results.tsv<br/>candidate_pairs.tsv)]:::data
+
+    classDef data fill:#ff9900,stroke:#b36b00,color:#000
+    style A fill:#e8f1fb,stroke:#4a78b5
+    style B fill:#eaf7ee,stroke:#3d8f58
 ```
 
-| Stage | What it does | Where |
-|---|---|---|
-| Normalisation | Folds accents, fixes leet, separates the legal form, parses house numbers, transliterates nine Indian scripts into consonant skeletons | `src/normalize.py` |
-| Blocking | Retrieves candidates within each country through complementary keys; every key targets a measured failure mode | `src/ranker.py`, `src/blocking.py`, `src/pipeline_b_v18/src/fuzzy*.py` |
-| Ranking | LightGBM on blocking-graph and similarity features keeps the best 30–60 candidates per record | `src/ranker.py` |
-| Matching | Calibrated stage-1 LightGBM, then a stacked stage 2 that reads the whole candidate list: consensus, competition, decoy and vocabulary features | `src/matcher_b.py`, `src/stack.py` |
-| Transformers | Fine-tuned multilingual cross-encoders (MiniLM, e5-base; ≤ 278M parameters) re-score uncertain pairs | `src/xenc_cli.py`, `src/xlink.py`, `src/pipeline_b_v18/src/pair_judge*.py` |
-| Ensemble | Logit-average of both pipelines, then a LightGBM "second opinion" trained out of fold | `src/ensemble/` |
-| Decision | Chooses each list, including the empty list, by exact expected F0.5 | `src/decide.py` |
-| Rules | France rules and final corrections, each validated before use and shipped as explicit pair lists | `src/france/`, `src/final_rules/` |
+<details>
+<summary><b>1 · Normalisation</b>: make noisy records comparable</summary>
 
-## Architecture decisions
+- Folds accents, corrects leet (`0→o`, `1→l`), strips junk prefixes and bracketed noise.
+- Keeps the **legal form** as its own field instead of deleting it, because a legal-form swap is a decoy signal.
+- Maps street abbreviations (Rd/Road, R/Rue, Av/Avenue) and parses house numbers, including truncation and zero-padding.
+- Transliterates **nine Indian scripts** and reduces names to consonant skeletons, so a Hindi or Tamil spelling can meet its English original.
 
-Every major design choice is written up as an [architecture decision record](docs/adr/README.md), with the alternatives we considered and the evidence behind the choice.
+`src/normalize.py`
+</details>
 
-| ADR | Decision |
+<details>
+<summary><b>2 · Blocking and ranking</b>: find the right 30–60 candidates out of millions</summary>
+
+- Every channel targets a measured failure mode: exact name, rare name words and word pairs, house number + street, rare address words, typo keys, website 4-grams, concatenated-name prefixes, Indic skeletons, digit-dropped house numbers, name word × address word, and character-trigram TF-IDF search on the GPU.
+- Frequency caps keep common words ("center" appears 293k times) from creating mega-blocks.
+- A cross-fitted **LightGBM ranker** on blocking-graph features cuts about 400 raw candidates per record to the best 30–60.
+- **Result:** 98.9% of true pairs survive the cut. A perfect matcher on these candidates would score 0.9965.
+
+`src/ranker.py` · `src/blocking.py` · `src/pipeline_b_v18/src/fuzzy*.py` · [ADR 0001](docs/adr/0001-blocking-then-learned-ranking.md)
+</details>
+
+<details>
+<summary><b>3 · Matching</b>: pairwise features, then the whole list</summary>
+
+- **Stage 1:** LightGBM on name, address and decoy-relation features, with isotonic calibration.
+- **Stage 2 (stacked)** reads each record's **entire candidate list**:
+  - consensus on house number, name and legal form with the other candidates;
+  - competition from other records claiming the same target;
+  - how common the changed words are. A typo creates a rare word; a decoy swaps in a common one.
+- Adding the list-context decoy features alone moved the sealed fold from **0.9431 to 0.9666**.
+
+`src/matcher_b.py` · `src/stack.py` · [ADR 0004](docs/adr/0004-list-context-stacking.md)
+</details>
+
+<details>
+<summary><b>4 · Transformers</b>: only where they pay off</summary>
+
+- **Pipeline A:** three fine-tuned cross-encoders (2× multilingual MiniLM-L12, 1× multilingual-e5-base) re-score only the **uncertain band**, combined through a small LightGBM link model.
+- **Pipeline B:** two MiniLM pair judges enter the stacked stage as features.
+- Fine-tuned only on the provided pairs. All models are ≤ 278M parameters, under MIT or Apache-2.0 licences.
+
+`src/xenc_cli.py` · `src/xlink.py` · `src/pipeline_b_v18/src/pair_judge*.py` · [ADR 0007](docs/adr/0007-cross-encoders-on-uncertain-band.md)
+</details>
+
+<details>
+<summary><b>5 · Ensemble and second opinion</b>: two views, one calibrated answer</summary>
+
+- The two pipelines are averaged in **log-odds** space; any weight from 0.3 to 0.7 scores the same within ±0.00005.
+- A small **second-opinion LightGBM**, trained out of fold, corrects the average using both pipelines' views, list context, the transformer scores and 23 structural conflict signals.
+- Gain: +0.0013 from the average, then +0.0007–0.0009 from the correction.
+
+`src/ensemble/` · [ADR 0008](docs/adr/0008-two-pipelines-and-second-opinion.md)
+</details>
+
+<details>
+<summary><b>6 · Decision</b>: the exact expected-F0.5 list, including "no match"</summary>
+
+1. Single-owner renormalisation: every target belongs to exactly one record.
+2. Validated odds shifts: ×3 for blank-address and website targets, ×0.5 for same-street pairs with a different house number.
+3. For each record, choose the candidate subset, **including the empty set**, that maximises the **exact expected F0.5** (Poisson-binomial, O(n²) per record).
+
+`src/decide.py` · [ADR 0005](docs/adr/0005-exact-expected-f05-decision.md)
+</details>
+
+<details>
+<summary><b>7 · France and final rules</b>: reasoning without labels</summary>
+
+Each rule had to pass label-free checks: the same pattern's accuracy in the labelled countries, class-volume consistency, the blank-address test, and agreement with the model's own confident decisions.
+
+| Rule | Pairs | Evidence |
+|---|:---:|---|
+| Accent-deleting website names (`mrignacclub` = Mérignac Club) | +1,413 | 99.99% correct on the same rule in training |
+| Acronyms at the owner's address | +2,153 | 99.8–99.9% in training; 99.87% agreement with the model |
+| Ties resolved by legal form and inherited formatting | +2,839 | 90–100% |
+| Invented brand names at the owner's full address | +2,125 | 98.3–98.6% in training |
+| US digit-substitution over-acceptance removed | −1,602 | test rate exceeded the true rate |
+
+`src/france/` · `src/final_rules/` · [ADR 0009](docs/adr/0009-label-free-validation-for-france.md) · [ADR 0010](docs/adr/0010-rules-as-explicit-change-lists.md)
+</details>
+
+## 💡 Key insights
+
+1. **Make training look like test.** Hiding a share of training records turned their copies into ownerless decoys, matching the test's decoy density. Held-out gains then transferred to the leaderboard almost one for one: +0.0236 held out against +0.024 on the leaderboard.
+2. **Context beats similarity.** A decoy is often *more* similar to its target than a noisy true copy is. It only stands out against the record's other candidates.
+3. **Decide exactly, not by threshold.** Under F0.5, the empty list is often the best bet. About 70% of singletons have a target with an identical name.
+4. **Diversity over size.** Two independently built pipelines added +0.0024 on the leaderboard. A larger cross-encoder (xlm-roberta-base) added nothing.
+5. **No labels is not no evidence.** For France, the same generator operation in the labelled countries, plus class-volume and blank-address checks, separated real patterns from wishful ones.
+
+<details>
+<summary><b>🧪 What we tried that did not work</b></summary>
+
+| Experiment | Finding |
 |---|---|
+| More candidates (60 → 100) | Recall plateaus after 40; at most +0.00005 |
+| Dense embedding retrieval (multilingual e5) | Recovered few extra matches |
+| Larger cross-encoders (xlm-roberta-base) | Lowered the held-out score at every blend weight |
+| Moving France's decision threshold | Looser −0.002 on the leaderboard; tighter: no change |
+| Plain averaging in France | Would have dropped about 6,500 true copies |
+| Breaking US/India same-name ties | At most 65% correct, below the ~77% that F0.5 requires |
+| A third stacking level | Same validation loss as stage 2 |
+
+</details>
+
+## 🏛️ Architecture decisions
+
+Every major choice is documented as an [ADR](docs/adr/README.md): the context, the decision, the alternatives we rejected and the evidence.
+
+| # | Decision |
+|:---:|---|
 | [0001](docs/adr/0001-blocking-then-learned-ranking.md) | Multi-channel blocking plus a learned ranker, not all-pairs or embedding-only retrieval |
 | [0002](docs/adr/0002-hard-country-partition.md) | Partition everything by country, with country as an open set |
 | [0003](docs/adr/0003-gradient-boosting-as-core-matcher.md) | Gradient-boosted trees as the core matcher; no generative LLMs |
-| [0004](docs/adr/0004-list-context-stacking.md) | A stacked second stage that reads each record's whole candidate list |
+| [0004](docs/adr/0004-list-context-stacking.md) | A stacked stage that reads each record's whole candidate list |
 | [0005](docs/adr/0005-exact-expected-f05-decision.md) | Exact expected-F0.5 decision instead of a fixed threshold |
 | [0006](docs/adr/0006-test-like-validation.md) | Grouped cross-fitting, a sealed fold and decoy injection |
 | [0007](docs/adr/0007-cross-encoders-on-uncertain-band.md) | Small cross-encoders only on the uncertain band |
@@ -72,20 +246,61 @@ Every major design choice is written up as an [architecture decision record](doc
 | [0009](docs/adr/0009-label-free-validation-for-france.md) | France: rules validated without labels |
 | [0010](docs/adr/0010-rules-as-explicit-change-lists.md) | Final rules shipped as explicit, auditable change lists |
 
-## Repository layout
+## 🚀 Getting started
 
+> [!NOTE]
+> The challenge dataset is not included; it belongs to the organisers. You need the provided `dataset/` folder with `train/` and `test/`.
+
+**1. Install**
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+The transformer stages need a second environment with a CUDA GPU:
+
+```bash
+pip install -r requirements_transformer.txt
+```
+
+**2. Run everything with one command**
+
+```bash
+BER_DATA_DIR=/path/to/dataset PY=python PY_TORCH=/path/to/torch/python bash run_all.sh
+```
+
+It runs both pipelines, the ensemble and the final rules, and writes `output/matching_results.tsv` and `output/candidate_pairs.tsv`. Finished stages are marked, so rerunning resumes after an interruption.
+
+| Requirement | Used |
+|---|---|
+| GPU | one 8–12 GB card |
+| RAM | 32 GB |
+| Time | about 15–20 hours end to end, mostly transformer stages |
+
+**3. Run the tests**
+
+```bash
+python -m pytest tests src/pipeline_b_v18/tests
+```
+
+See the [reproduction guide](docs/reproduction.md) for the stage-by-stage commands.
+
+## 📁 Repository layout
+
+```text
+.
 ├── run_all.sh                    one-command reproduction (data → output/)
 ├── reproduce.sh                  pipeline A from scratch
 ├── requirements.txt              pinned CPU environment (Python 3.12)
-├── requirements_transformer.txt  pinned PyTorch + transformers environment (CUDA)
-├── src/                          pipeline A (normalise, block, rank, match, stack, decide, transformers)
+├── requirements_transformer.txt  pinned PyTorch + transformers environment
+├── src/                          pipeline A: normalise, block, rank, match, stack, decide, transformers
 │   ├── pipeline_b_v18/           pipeline B, self-contained with its own tests
-│   ├── ensemble/                 two-pipeline average and second-opinion model
+│   ├── ensemble/                 logit average and second-opinion model
 │   ├── france/                   France decision rules
-│   └── final_rules/              final rule overlays, change lists and the evidence for each rule
+│   └── final_rules/              rule overlays, change lists, and the evidence for each rule
 ├── scripts_pipeline_a/           version-by-version run scripts for pipeline A
-├── tests/                        unit tests (scorer, decision, normalisation, stacking)
+├── tests/                        scorer, decision, normalisation and stacking tests
 └── docs/
     ├── methodology.md            full technical report
     ├── summary.md                two-page summary
@@ -94,37 +309,28 @@ Every major design choice is written up as an [architecture decision record](doc
     └── adr/                      architecture decision records
 ```
 
-## Running it
+## ✅ Compliance
 
-The competition data is not included; it belongs to the organisers. Put the provided `dataset/` folder (with `train/` and `test/`) somewhere local.
+- Trained only on the provided training data; no external data, APIs, geocoders or gazetteers.
+- Models: LightGBM (MIT), paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 118M), multilingual-e5-base (MIT, 278M), all far below the 8B-parameter limit.
+- No generative model produces output; every predicted ID comes from a retrieved candidate.
+- The official validator passes on the final files with `--check-ids`.
 
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-# for the transformer stages, a second environment with a CUDA GPU:
-pip install -r requirements_transformer.txt
-```
+## 👥 Team Antidex
 
-```bash
-BER_DATA_DIR=/path/to/dataset PY=python PY_TORCH=/path/to/torch/python bash run_all.sh
-```
+<table>
+<tr>
+<td align="center" width="25%"><b>Tanmay Rawal</b></td>
+<td align="center" width="25%"><b>Shiviansh Yadav</b></td>
+<td align="center" width="25%"><b>Mudit Todi</b></td>
+<td align="center" width="25%"><b>Yash Jain</b></td>
+</tr>
+</table>
 
-`run_all.sh` runs both pipelines, the ensemble and the final rules, and writes `output/matching_results.tsv` and `output/candidate_pairs.tsv`. Finished stages are marked, so rerunning the command resumes after an interruption. Expect roughly 15–20 hours on one 8–12 GB GPU with 32 GB RAM. See [docs/reproduction.md](docs/reproduction.md) for the step-by-step version.
+## 🙏 Acknowledgements
 
-To run the tests:
+Thanks to the Amazon ML Challenge 2026 organisers for a carefully designed problem. Its synthetic decoys made this one of the most interesting entity-resolution tasks we have worked on.
 
-```bash
-python -m pytest tests src/pipeline_b_v18/tests
-```
+## 📄 License
 
-The analysis scripts in `src/final_rules/scripts/` and `src/france/fr2_rules/` document how each rule was derived and validated. They read from a local `work/` folder set in constants at the top of each file, and they are not part of the one-command run.
-
-## Compliance
-
-- Trained only on the provided training data. No external data, APIs, geocoders or gazetteers.
-- Models: LightGBM (MIT); paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 118M); multilingual-e5-base (MIT, 278M). All are far below the 8B-parameter limit.
-- No generative model produces any output; every predicted ID comes from a retrieved candidate.
-
-## Licence
-
-Code is released under the [MIT licence](LICENSE). The challenge dataset is not part of this repository and is subject to the organisers' terms.
+The code is released under the [MIT License](LICENSE). The challenge dataset is not part of this repository and remains subject to the organisers' terms.
