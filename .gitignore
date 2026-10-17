@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Competition data and generated artefacts (not redistributable / too large)
+data/
+dataset/
+work/
+work_a/
+work_b/
+output/
+submissions/
+scratch/
+*.zip
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

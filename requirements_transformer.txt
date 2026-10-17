@@ -1,0 +1,12 @@
+# Transformer stage only (src/xenc_cli.py): Python 3.13.14, CUDA GPU (built and run on an RTX 4070 Laptop, 8 GB).
+# Install torch from the CUDA 12.4 index:  pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0
+transformers==5.6.2
+tokenizers==0.22.2
+safetensors==0.7.0
+huggingface_hub==1.12.0
+pyarrow==25.0.1
+numpy==2.4.0
+# Model (downloaded once, then run offline with HF_HUB_OFFLINE=1):
+#   sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 - Apache-2.0, 118M parameters,
+#   fine-tuned only on the provided training pairs (and on pseudo-labelled test pairs, see README).
